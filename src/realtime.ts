@@ -210,25 +210,29 @@ export class PolymarketRealtime extends EventEmitter {
   private flushLiveSubscriptions(): void {
     if (!this.liveReady) return;
 
-    for (const symbol of this.liveBinanceSymbols) {
+    const binanceSubscriptions = [...this.liveBinanceSymbols].map((symbol) => ({
+      topic: 'crypto_prices',
+      type: '*',
+      filters: JSON.stringify({ symbol }),
+    }));
+
+    if (binanceSubscriptions.length > 0) {
       this.liveSocket.sendJson({
         action: 'subscribe',
-        subscriptions: [{
-          topic: 'crypto_prices',
-          type: '*',
-          filters: JSON.stringify({ symbol }),
-        }],
+        subscriptions: binanceSubscriptions,
       });
     }
 
-    for (const symbol of this.liveChainlinkSymbols) {
+    const chainlinkSubscriptions = [...this.liveChainlinkSymbols].map((symbol) => ({
+      topic: 'crypto_prices_chainlink',
+      type: '*',
+      filters: JSON.stringify({ symbol }),
+    }));
+
+    if (chainlinkSubscriptions.length > 0) {
       this.liveSocket.sendJson({
         action: 'subscribe',
-        subscriptions: [{
-          topic: 'crypto_prices_chainlink',
-          type: '*',
-          filters: JSON.stringify({ symbol }),
-        }],
+        subscriptions: chainlinkSubscriptions,
       });
     }
   }
