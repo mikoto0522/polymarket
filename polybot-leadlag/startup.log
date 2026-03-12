@@ -1,0 +1,6 @@
+15:58:07 [INFO] Mode: dry-run
+15:58:07 [INFO] Budget: $5.00 | Paper balance: $100.00
+15:58:07 [INFO] Replay log: .leadlag-state\replay\run-2026-03-12T07-58-07-095Z.jsonl
+15:58:08 [INFO] [+MKT] btc-updown-5m-1773302100 | Bitcoin Up or Down - March 12, 3:55AM-4:00AM ET
+15:58:09 [INFO] [+MKT] btc-updown-5m-1773302400 | Bitcoin Up or Down - March 12, 4:00AM-4:05AM ET
+15:58:09 [INFO] [+MKT] btc-updown-15m-1773301500 | Bitcoin Up or Down - March 12, 3:45AM-4:00AM ET

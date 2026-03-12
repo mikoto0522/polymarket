@@ -1,0 +1,24 @@
+{
+  "name": "polybot-leadlag",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "live": "tsx src/index.ts --live",
+    "paper": "tsx src/index.ts --paper",
+    "dry-run": "tsx src/index.ts --dry-run"
+  },
+  "dependencies": {
+    "@polymarket/clob-client": "^5.8.0",
+    "ethers": "^5.8.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
