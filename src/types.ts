@@ -115,6 +115,7 @@ export interface CryptoPrice {
 
 export interface SignalCandidate {
   side: Side;
+  score: number;
   ask: number;
   askSize: number;
   spread: number;

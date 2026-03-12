@@ -268,9 +268,9 @@ class LeadLagBot {
     const openPositions = this.state.getOpenPositions();
     if (openPositions.length >= this.config.maxOpenPositions) return;
     let slotsRemaining = this.config.maxOpenPositions - openPositions.length;
+    const candidates: Array<{ market: TrackedMarket; signal: SignalCandidate }> = [];
 
     for (const market of this.markets.values()) {
-      if (slotsRemaining <= 0) break;
       if (this.state.hasOpenPosition(market.conditionId)) continue;
       if (market.baseline == null) continue;
       if (now < market.startTime) continue;
@@ -283,8 +283,31 @@ class LeadLagBot {
       const signal = this.buildSignal(market, timeRemainingSec);
       if (!signal) continue;
 
-      void this.openPosition(market, signal);
-      slotsRemaining -= 1;
+      candidates.push({ market, signal });
+    }
+
+    candidates
+      .sort((a, b) => b.signal.score - a.signal.score)
+      .slice(0, slotsRemaining)
+      .forEach(({ market, signal }) => {
+        void this.openPosition(market, signal);
+      });
+
+    if (candidates.length > 0) {
+      this.replay.record('signal_batch', {
+        candidates: candidates.length,
+        selected: Math.min(candidates.length, slotsRemaining),
+        top: candidates
+          .slice(0, Math.min(candidates.length, 5))
+          .map(({ market, signal }) => ({
+            slug: market.slug,
+            coin: market.coin,
+            side: signal.side,
+            score: signal.score,
+            edge: signal.edge,
+            ask: signal.ask,
+          })),
+      });
     }
   }
 
@@ -373,8 +396,17 @@ class LeadLagBot {
       return fail('edge_too_small', { edge, impliedProb, ask });
     }
 
+    const score = edge * 100
+      + marketLag * 60
+      + Math.abs(binancePulseBps) * 1.2
+      + leadGapBps * 1.1
+      + (askBook.askSize * ask) * 0.02
+      - askBook.spread * 30
+      - ask * 4;
+
     const signal = {
       side: direction,
+      score,
       ask,
       askSize: askBook.askSize,
       spread: askBook.spread,
@@ -394,6 +426,7 @@ class LeadLagBot {
       coin: market.coin,
       duration: market.duration,
       side: signal.side,
+      score: signal.score,
       ask: signal.ask,
       askSize: signal.askSize,
       spread: signal.spread,
@@ -425,6 +458,7 @@ class LeadLagBot {
 
     this.log.trade(
       `[ENTRY] ${signal.side} ${market.slug} ask=${signal.ask.toFixed(3)} ` +
+      `score=${signal.score.toFixed(1)} ` +
       `edge=${signal.edge.toFixed(3)} lag=${signal.marketLag.toFixed(3)} ` +
       `binance=${signal.binanceDeltaBps.toFixed(1)}bps pulse=${signal.binancePulseBps.toFixed(1)}bps ` +
       `chain=${signal.chainlinkDeltaBps.toFixed(1)}bps gap=${signal.leadGapBps.toFixed(1)}bps`,
@@ -436,6 +470,7 @@ class LeadLagBot {
         conditionId: market.conditionId,
         slug: market.slug,
         side: signal.side,
+        score: signal.score,
         ask: signal.ask,
         impliedProb: signal.impliedProb,
         edge: signal.edge,
@@ -466,6 +501,7 @@ class LeadLagBot {
         conditionId: market.conditionId,
         slug: market.slug,
         side: signal.side,
+        score: signal.score,
         ask: signal.ask,
         stake: this.config.budget,
         shares,
@@ -480,6 +516,7 @@ class LeadLagBot {
         conditionId: market.conditionId,
         slug: market.slug,
         side: signal.side,
+        score: signal.score,
         ask: signal.ask,
         stake: this.config.budget,
         shares,
