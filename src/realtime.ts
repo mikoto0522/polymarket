@@ -4,7 +4,7 @@ import type { CryptoPrice, OrderbookSnapshot } from './types.js';
 
 const MARKET_WS = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
 const LIVE_WS = 'wss://ws-live-data.polymarket.com';
-const BINANCE_WS = 'wss://stream.binance.com:9443/stream';
+const BINANCE_WS = 'wss://stream.binance.com:443/stream';
 
 interface ManagedSocketConfig {
   url: string;
@@ -152,7 +152,6 @@ export class PolymarketRealtime extends EventEmitter {
   async connect(timeoutMs = 15000): Promise<void> {
     const waiters = [
       onceConnected(this, 'marketConnected'),
-      onceConnected(this, 'chainlinkConnected'),
       onceConnected(this, 'binanceConnected'),
     ];
 
