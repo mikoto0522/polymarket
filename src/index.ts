@@ -52,6 +52,7 @@ class LeadLagBot {
   private readonly subscribedMarkets = new Set<string>();
   private readonly coinCooldownUntil = new Map<Coin, number>();
   private readonly rejectCounts = new Map<string, number>();
+  private readonly missingBinanceByCoin = new Map<Coin, number>();
   private readonly tokenToCondition = new Map<string, string>();
   private readonly coinToConditions = new Map<Coin, Set<string>>();
   private readonly dirtyConditions = new Set<string>();
@@ -367,6 +368,9 @@ class LeadLagBot {
   private buildSignal(market: TrackedMarket, timeRemainingSec: number): SignalCandidate | null {
     const fail = (reason: string, extra: Record<string, unknown> = {}): null => {
       this.rejectCounts.set(reason, (this.rejectCounts.get(reason) || 0) + 1);
+      if (reason === 'missing_binance') {
+        this.missingBinanceByCoin.set(market.coin, (this.missingBinanceByCoin.get(market.coin) || 0) + 1);
+      }
       this.replay.recordTick('signal_reject', `${market.conditionId}:${reason}`, {
         conditionId: market.conditionId,
         slug: market.slug,
@@ -725,6 +729,7 @@ class LeadLagBot {
     this.log.info(
       `[LAT] M->D ${formatLatencySummary(m2d)} | D->O ${formatLatencySummary(d2o)}`,
     );
+    this.log.info(`[SRC] ${this.formatSourceHealth()}`);
 
     for (const position of openPositions.slice(-5)) {
       this.log.info(
@@ -803,11 +808,29 @@ class LeadLagBot {
     await this.replay.close();
     process.exit(0);
   }
+
+  private formatSourceHealth(): string {
+    const now = Date.now();
+    return this.config.coins
+      .map((coin) => {
+        const binanceAge = formatAgeMs(this.binance.get(coin)?.timestamp, now);
+        const chainlinkAge = formatAgeMs(this.chainlink.get(coin)?.timestamp, now);
+        const miss = this.missingBinanceByCoin.get(coin) || 0;
+        return `${coin} bin=${binanceAge} ch=${chainlinkAge} miss=${miss}`;
+      })
+      .join(' | ');
+  }
 }
 
 function formatLatencySummary(summary: ReturnType<LatencyTracker['summarize']>): string {
   if (!summary) return 'n/a';
   return `n=${summary.count} p50=${summary.p50.toFixed(1)}ms p95=${summary.p95.toFixed(1)}ms max=${summary.max.toFixed(1)}ms`;
+}
+
+function formatAgeMs(timestamp: number | undefined, now: number): string {
+  if (!timestamp) return 'n/a';
+  const age = Math.max(0, now - timestamp);
+  return `${age}ms`;
 }
 
 function generateCandidateSlugs(coins: Coin[], durations: Duration[]): string[] {
