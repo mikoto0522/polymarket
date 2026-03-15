@@ -45,6 +45,11 @@ export interface LiveWalletBalances {
   pol: string;
 }
 
+export interface LiveBalanceProbe {
+  signatureType: number;
+  polymarketUsdc: string;
+}
+
 export class LiveTradingClient {
   private readonly wallet: Wallet;
   private readonly provider: ethers.providers.JsonRpcProvider;
@@ -159,6 +164,36 @@ export class LiveTradingClient {
     };
   }
 
+  async probePolymarketBalances(signatureTypes: number[] = [0, 1, 2]): Promise<LiveBalanceProbe[]> {
+    await this.initialize();
+    const probes: LiveBalanceProbe[] = [];
+    for (const signatureType of signatureTypes) {
+      try {
+        const client = new ClobClient(
+          CLOB_HOST,
+          this.chainId,
+          this.wallet,
+          this.credsOrThrow(),
+          signatureType as any,
+          this.funderAddress,
+        );
+        const balance = await client.getBalanceAllowance({
+          asset_type: 'COLLATERAL' as any,
+        });
+        probes.push({
+          signatureType,
+          polymarketUsdc: ethers.utils.formatUnits(balance.balance || '0', USDC_DECIMALS),
+        });
+      } catch {
+        probes.push({
+          signatureType,
+          polymarketUsdc: 'error',
+        });
+      }
+    }
+    return probes;
+  }
+
   async redeemByTokenIds(
     conditionId: string,
     tokenIds: { yesTokenId: string; noTokenId: string },
@@ -260,4 +295,13 @@ export class LiveTradingClient {
     }
     return this.clobClient;
   }
+
+  private credsOrThrow() {
+    const client = this.getClient();
+    if (!client.creds) {
+      throw new Error('API credentials are not initialized');
+    }
+    return client.creds;
+  }
 }
+

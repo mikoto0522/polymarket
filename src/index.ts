@@ -84,6 +84,10 @@ class LeadLagBot {
       this.liveBalances = await this.live.getWalletBalances().catch(() => null);
       this.log.info(`Live signer: ${this.live.getAddress()}`);
       this.log.info(`Live profile: ${this.live.getProfileAddress()}`);
+      const probes = await this.live.probePolymarketBalances().catch(() => []);
+      if (probes.length > 0) {
+        this.log.info(`[PM PROBE] ${probes.map((probe) => `sig=${probe.signatureType}:$${probe.polymarketUsdc}`).join(' | ')}`);
+      }
     }
 
     this.log.info(`Mode: ${this.config.mode}`);
