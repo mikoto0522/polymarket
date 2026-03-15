@@ -39,7 +39,7 @@ export interface RedeemResult {
 }
 
 export interface LiveWalletBalances {
-  usdc: string;
+  polymarketUsdc: string;
   pol: string;
 }
 
@@ -133,12 +133,16 @@ export class LiveTradingClient {
   }
 
   async getWalletBalances(): Promise<LiveWalletBalances> {
-    const [usdcRaw, polRaw] = await Promise.all([
-      this.usdcContract.balanceOf(this.wallet.address),
+    await this.initialize();
+    const client = this.getClient();
+    const [pmBalance, polRaw] = await Promise.all([
+      client.getBalanceAllowance({
+        asset_type: 'COLLATERAL' as any,
+      }),
       this.provider.getBalance(this.wallet.address),
     ]);
     return {
-      usdc: ethers.utils.formatUnits(usdcRaw, USDC_DECIMALS),
+      polymarketUsdc: ethers.utils.formatUnits(pmBalance.balance || '0', USDC_DECIMALS),
       pol: ethers.utils.formatEther(polRaw),
     };
   }

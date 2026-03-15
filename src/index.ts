@@ -751,7 +751,7 @@ class LeadLagBot {
     }
 
     const balanceText = this.config.mode === 'live'
-      ? `USDC=$${formatLiveBalance(this.liveBalances?.usdc)} | POL=${formatLiveBalance(this.liveBalances?.pol, 4)}`
+      ? `PM=$${formatLiveBalance(this.liveBalances?.polymarketUsdc)} | POL=${formatLiveBalance(this.liveBalances?.pol, 4)}`
       : `Paper=$${this.state.getPaperBalance().toFixed(2)}`;
 
     this.log.status(
