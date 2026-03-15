@@ -77,10 +77,13 @@ class LeadLagBot {
         privateKey: this.config.privateKey,
         rpcUrl: this.config.rpcUrl,
         chainId: this.config.chainId,
+        signatureType: this.config.signatureType,
+        funderAddress: this.config.funderAddress || undefined,
       });
       await this.live.initialize();
       this.liveBalances = await this.live.getWalletBalances().catch(() => null);
-      this.log.info(`Live wallet: ${this.live.getAddress()}`);
+      this.log.info(`Live signer: ${this.live.getAddress()}`);
+      this.log.info(`Live profile: ${this.live.getProfileAddress()}`);
     }
 
     this.log.info(`Mode: ${this.config.mode}`);

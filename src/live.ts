@@ -22,6 +22,8 @@ export interface LiveTradingConfig {
   privateKey: string;
   rpcUrl?: string;
   chainId?: number;
+  signatureType?: number;
+  funderAddress?: string;
 }
 
 export interface LiveOrderResult {
@@ -49,6 +51,8 @@ export class LiveTradingClient {
   private readonly ctfContract: Contract;
   private readonly usdcContract: Contract;
   private readonly chainId: number;
+  private readonly signatureType: number;
+  private readonly funderAddress?: string;
   private clobClient: ClobClient | null = null;
   private initialized = false;
   private tickSizeCache = new Map<string, TickSize>();
@@ -57,6 +61,8 @@ export class LiveTradingClient {
 
   constructor(private readonly config: LiveTradingConfig) {
     this.chainId = config.chainId || POLYGON_MAINNET;
+    this.signatureType = config.signatureType || 0;
+    this.funderAddress = config.funderAddress || undefined;
     const rpcUrl = config.rpcUrl || 'https://polygon-rpc.com';
     this.provider = new ethers.providers.JsonRpcProvider(rpcUrl, this.chainId);
     this.wallet = new Wallet(config.privateKey, this.provider);
@@ -68,10 +74,14 @@ export class LiveTradingClient {
     return this.wallet.address;
   }
 
+  getProfileAddress(): string {
+    return this.funderAddress || this.wallet.address;
+  }
+
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    const l1Client = new ClobClient(CLOB_HOST, this.chainId, this.wallet);
+    const l1Client = new ClobClient(CLOB_HOST, this.chainId, this.wallet, undefined, this.signatureType as any, this.funderAddress);
     const derived = await l1Client.deriveApiKey();
     const creds = derived.key ? derived : await l1Client.createApiKey();
     if (!creds.key) {
@@ -87,6 +97,8 @@ export class LiveTradingClient {
         secret: creds.secret,
         passphrase: creds.passphrase,
       },
+      this.signatureType as any,
+      this.funderAddress,
     );
 
     await this.ensureCollateralAllowance();

@@ -7,6 +7,8 @@ export interface Config {
   privateKey: string;
   rpcUrl: string;
   chainId: number;
+  signatureType: number;
+  funderAddress: string;
   budget: number;
   paperBalance: number;
   dataDir: string;
@@ -71,6 +73,8 @@ export function loadConfig(): Config {
     privateKey,
     rpcUrl: get('rpc-url', 'POLYGON_RPC_URL', 'https://polygon-rpc.com'),
     chainId: parseFloat(get('chain-id', 'CHAIN_ID', '137')),
+    signatureType: parseFloat(get('signature-type', 'POLYMARKET_SIGNATURE_TYPE', '0')),
+    funderAddress: get('funder-address', 'POLYMARKET_FUNDER_ADDRESS', ''),
     budget: parseFloat(get('budget', 'BUDGET', '5')),
     paperBalance: parseFloat(get('paper-balance', 'PAPER_BALANCE', '100')),
     dataDir: get('data-dir', 'DATA_DIR', '.leadlag-state'),
