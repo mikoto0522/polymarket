@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { loadConfig, type Config } from './config.js';
+import { loadConfig, type Config, type StrategyProfile } from './config.js';
 import { LatencyTracker } from './latency.js';
 import { LiveTradingClient, type LiveWalletBalances } from './live.js';
 import { Logger } from './logger.js';
@@ -99,17 +99,9 @@ class LeadLagBot {
       paperBalance: this.state.getPaperBalance(),
       coins: this.config.coins,
       durations: this.config.durations,
-      closeWindowSec: this.config.closeWindowSec,
+      strategyProfiles: this.config.strategyProfiles,
       maxOpenPositions: this.config.maxOpenPositions,
       maxOpenPositionsPerCoin: this.config.maxOpenPositionsPerCoin,
-      binanceTriggerBps: this.config.binanceTriggerBps,
-      minBinancePulseBps: this.config.minBinancePulseBps,
-      minLeadGapBps: this.config.minLeadGapBps,
-      minEdge: this.config.minEdge,
-      minMarketLag: this.config.minMarketLag,
-      maxAsk: this.config.maxAsk,
-      maxSpread: this.config.maxSpread,
-      minTopBookValue: this.config.minTopBookValue,
       replayTicksEnabled: this.config.replayTicksEnabled,
     });
 
@@ -144,6 +136,10 @@ class LeadLagBot {
 
     this.realtime.subscribeCryptoPrices(binanceSymbols);
     this.realtime.subscribeCryptoChainlinkPrices(chainlinkSymbols);
+  }
+
+  private getStrategyProfile(duration: Duration): StrategyProfile {
+    return this.config.strategyProfiles[duration];
   }
 
   private handleBinancePrice(price: CryptoPrice): void {
@@ -322,8 +318,9 @@ class LeadLagBot {
       if (now >= market.endTime) continue;
       if ((this.coinCooldownUntil.get(market.coin) || 0) > now) continue;
 
+      const strategy = this.getStrategyProfile(market.duration);
       const timeRemainingSec = (market.endTime - now) / 1000;
-      if (timeRemainingSec > this.config.closeWindowSec || timeRemainingSec <= 1) continue;
+      if (timeRemainingSec > strategy.closeWindowSec || timeRemainingSec <= 1) continue;
 
       const signal = this.buildSignal(market, timeRemainingSec);
       if (!signal) continue;
@@ -391,6 +388,8 @@ class LeadLagBot {
       return null;
     };
 
+    const strategy = this.getStrategyProfile(market.duration);
+
     const baseline = market.baseline;
     if (baseline == null) return fail('missing_baseline');
 
@@ -399,23 +398,23 @@ class LeadLagBot {
     if (!spot) return fail('missing_binance');
 
     const now = Date.now();
-    if (now - spot.timestamp > this.config.maxExternalAgeMs) {
+    if (now - spot.timestamp > strategy.maxExternalAgeMs) {
       return fail('stale_binance', { ageMs: now - spot.timestamp });
     }
 
-    const chainAvailable = !!chain && now - chain.timestamp <= this.config.maxExternalAgeMs;
+    const chainAvailable = !!chain && now - chain.timestamp <= strategy.maxExternalAgeMs;
     const chainlinkDeltaBps = chainAvailable && chain ? toBps(chain.price, baseline) : 0;
     const binanceDeltaBps = toBps(spot.price, baseline);
     const binancePulseBps = this.getBinancePulseBps(market.coin);
-    if (Math.abs(binancePulseBps) < this.config.minBinancePulseBps) {
+    if (Math.abs(binancePulseBps) < strategy.minBinancePulseBps) {
       return fail('binance_pulse_too_small', { binancePulseBps });
     }
-    const direction = chooseDirection(binanceDeltaBps, chainlinkDeltaBps, this.config);
+    const direction = chooseDirection(binanceDeltaBps, chainlinkDeltaBps, strategy);
     if (!direction) {
       return fail('direction_rejected', { binanceDeltaBps, chainlinkDeltaBps });
     }
     const leadGapBps = Math.abs(binanceDeltaBps - chainlinkDeltaBps);
-    if (leadGapBps < this.config.minLeadGapBps) {
+    if (leadGapBps < strategy.minLeadGapBps) {
       return fail('lead_gap_too_small', { leadGapBps, binanceDeltaBps, chainlinkDeltaBps });
     }
 
@@ -425,36 +424,36 @@ class LeadLagBot {
     const askBook = direction === 'UP' ? upBook : downBook;
     const ask = askBook?.bestAsk ?? 0;
     if (!askBook) return fail('missing_ask_book');
-    if (now - askBook.timestamp > this.config.maxBookAgeMs) {
+    if (now - askBook.timestamp > strategy.maxBookAgeMs) {
       return fail('stale_orderbook', { ageMs: now - askBook.timestamp });
     }
-    if (askBook.askSize * ask < this.config.minTopBookValue) {
+    if (askBook.askSize * ask < strategy.minTopBookValue) {
       return fail('top_book_value_too_small', { topBookValue: askBook.askSize * ask });
     }
-    if (askBook.spread > this.config.maxSpread) {
+    if (askBook.spread > strategy.maxSpread) {
       return fail('spread_too_wide', { spread: askBook.spread });
     }
-    if (ask <= 0 || ask > this.config.maxAsk) {
+    if (ask <= 0 || ask > strategy.maxAsk) {
       return fail('ask_out_of_range', { ask });
     }
 
     const chainAligned = !chainAvailable || Math.sign(chainlinkDeltaBps) === 0 || Math.sign(chainlinkDeltaBps) === Math.sign(binanceDeltaBps);
     const anchorBonusBps = chainAligned
-      ? Math.min(Math.abs(chainlinkDeltaBps), this.config.chainlinkConfirmBps * 2)
+      ? Math.min(Math.abs(chainlinkDeltaBps), strategy.chainlinkConfirmBps * 2)
       : 0;
     const pulseBonus = Math.abs(binancePulseBps) * 0.9;
     const strengthBps = Math.abs(binanceDeltaBps) + leadGapBps * 0.7 + anchorBonusBps * 0.4 + pulseBonus;
-    const certainty = clamp(1 - (timeRemainingSec / this.config.closeWindowSec), 0.2, 1);
-    const impliedProb = clamp(0.5 + (strengthBps / this.config.fairScaleBps) * 0.47 * certainty, 0.5, 0.97);
+    const certainty = clamp(1 - (timeRemainingSec / strategy.closeWindowSec), 0.2, 1);
+    const impliedProb = clamp(0.5 + (strengthBps / strategy.fairScaleBps) * 0.47 * certainty, 0.5, 0.97);
     const oppositeBid = direction === 'UP' ? downBook.bestBid : upBook.bestBid;
     const marketMid = clamp((ask + (1 - oppositeBid)) / 2, 0, 1);
     const marketLag = impliedProb - marketMid;
-    const edge = impliedProb - ask - this.config.executionBuffer;
+    const edge = impliedProb - ask - strategy.executionBuffer;
 
-    if (marketLag < this.config.minMarketLag) {
+    if (marketLag < strategy.minMarketLag) {
       return fail('market_lag_too_small', { marketLag, impliedProb, marketMid });
     }
-    if (edge < this.config.minEdge) {
+    if (edge < strategy.minEdge) {
       return fail('edge_too_small', { edge, impliedProb, ask });
     }
 
@@ -528,6 +527,7 @@ class LeadLagBot {
     if (this.state.hasOpenPosition(market.conditionId)) return;
 
     const tokenId = signal.side === 'UP' ? market.upTokenId : market.downTokenId;
+    const strategy = this.getStrategyProfile(market.duration);
     let fillAsk = signal.ask;
     let shares = this.config.budget / fillAsk;
 
@@ -609,7 +609,7 @@ class LeadLagBot {
 
       const fillBook = this.getActiveAskBook(market, signal.side);
       const fillNow = Date.now();
-      if (!fillBook || fillNow - fillBook.timestamp > this.config.maxBookAgeMs || fillBook.bestAsk <= 0) {
+      if (!fillBook || fillNow - fillBook.timestamp > strategy.maxBookAgeMs || fillBook.bestAsk <= 0) {
         this.log.warn(`[PAPER SKIP] ${market.slug} ${signal.side} no fresh ask after ${fillDelayMs}ms`);
         this.replay.record('entry_failed', {
           mode: this.config.mode,
@@ -950,13 +950,13 @@ function parseShortTermSlug(slug: string): { coin: Coin; duration: Duration; sta
   return { coin, duration, startTime, endTime };
 }
 
-function chooseDirection(binanceDeltaBps: number, chainlinkDeltaBps: number, config: Config): Side | null {
-  if (Math.abs(binanceDeltaBps) < config.binanceTriggerBps) return null;
+function chooseDirection(binanceDeltaBps: number, chainlinkDeltaBps: number, strategy: StrategyProfile): Side | null {
+  if (Math.abs(binanceDeltaBps) < strategy.binanceTriggerBps) return null;
 
   const binanceSign = Math.sign(binanceDeltaBps);
   const chainSign = Math.sign(chainlinkDeltaBps);
 
-  if (chainSign !== 0 && chainSign !== binanceSign && Math.abs(chainlinkDeltaBps) >= config.chainlinkOpposeBps) {
+  if (chainSign !== 0 && chainSign !== binanceSign && Math.abs(chainlinkDeltaBps) >= strategy.chainlinkOpposeBps) {
     return null;
   }
 
