@@ -406,16 +406,17 @@ class LeadLagBot {
     const chainlinkDeltaBps = chainAvailable && chain ? toBps(chain.price, baseline) : 0;
     const binanceDeltaBps = toBps(spot.price, baseline);
     const binancePulseBps = this.getBinancePulseBps(market.coin);
-    if (Math.abs(binancePulseBps) < strategy.minBinancePulseBps) {
-      return fail('binance_pulse_too_small', { binancePulseBps });
-    }
     const direction = chooseDirection(binanceDeltaBps, chainlinkDeltaBps, strategy);
     if (!direction) {
       return fail('direction_rejected', { binanceDeltaBps, chainlinkDeltaBps });
     }
+    const sideStrategy = strategy.sides[direction];
+    if (Math.abs(binancePulseBps) < sideStrategy.minBinancePulseBps) {
+      return fail('binance_pulse_too_small', { binancePulseBps, side: direction });
+    }
     const leadGapBps = Math.abs(binanceDeltaBps - chainlinkDeltaBps);
-    if (leadGapBps < strategy.minLeadGapBps) {
-      return fail('lead_gap_too_small', { leadGapBps, binanceDeltaBps, chainlinkDeltaBps });
+    if (leadGapBps < sideStrategy.minLeadGapBps) {
+      return fail('lead_gap_too_small', { leadGapBps, binanceDeltaBps, chainlinkDeltaBps, side: direction });
     }
 
     const upBook = this.orderbooks.get(market.upTokenId);
@@ -433,8 +434,8 @@ class LeadLagBot {
     if (askBook.spread > strategy.maxSpread) {
       return fail('spread_too_wide', { spread: askBook.spread });
     }
-    if (ask <= 0 || ask > strategy.maxAsk) {
-      return fail('ask_out_of_range', { ask });
+    if (ask <= 0 || ask > sideStrategy.maxAsk) {
+      return fail('ask_out_of_range', { ask, side: direction });
     }
 
     const chainAligned = !chainAvailable || Math.sign(chainlinkDeltaBps) === 0 || Math.sign(chainlinkDeltaBps) === Math.sign(binanceDeltaBps);
@@ -450,11 +451,11 @@ class LeadLagBot {
     const marketLag = impliedProb - marketMid;
     const edge = impliedProb - ask - strategy.executionBuffer;
 
-    if (marketLag < strategy.minMarketLag) {
-      return fail('market_lag_too_small', { marketLag, impliedProb, marketMid });
+    if (marketLag < sideStrategy.minMarketLag) {
+      return fail('market_lag_too_small', { marketLag, impliedProb, marketMid, side: direction });
     }
-    if (edge < strategy.minEdge) {
-      return fail('edge_too_small', { edge, impliedProb, ask });
+    if (edge < sideStrategy.minEdge) {
+      return fail('edge_too_small', { edge, impliedProb, ask, side: direction });
     }
 
     const score = edge * 100
@@ -951,18 +952,20 @@ function parseShortTermSlug(slug: string): { coin: Coin; duration: Duration; sta
 }
 
 function chooseDirection(binanceDeltaBps: number, chainlinkDeltaBps: number, strategy: StrategyProfile): Side | null {
-  if (Math.abs(binanceDeltaBps) < strategy.binanceTriggerBps) return null;
+  let direction: Side | null = null;
+  if (binanceDeltaBps >= strategy.sides.UP.binanceTriggerBps) direction = 'UP';
+  else if (binanceDeltaBps <= -strategy.sides.DOWN.binanceTriggerBps) direction = 'DOWN';
+  else return null;
 
-  const binanceSign = Math.sign(binanceDeltaBps);
+  const binanceSign = direction === 'UP' ? 1 : -1;
   const chainSign = Math.sign(chainlinkDeltaBps);
+  const sideStrategy = strategy.sides[direction];
 
-  if (chainSign !== 0 && chainSign !== binanceSign && Math.abs(chainlinkDeltaBps) >= strategy.chainlinkOpposeBps) {
+  if (chainSign !== 0 && chainSign !== binanceSign && Math.abs(chainlinkDeltaBps) >= sideStrategy.chainlinkOpposeBps) {
     return null;
   }
 
-  if (binanceSign > 0) return 'UP';
-  if (binanceSign < 0) return 'DOWN';
-  return null;
+  return direction;
 }
 
 function toBps(price: number, baseline: number): number {
