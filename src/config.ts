@@ -182,7 +182,7 @@ export function loadConfig(): Config {
       }),
     },
     coins: parseCoins(get('coins', 'COINS', 'BTC,ETH')),
-    durations: parseDurations(get('durations', 'DURATIONS', '5m,15m')),
+    durations: parseDurations(get('durations', 'DURATIONS', '5m')),
   };
 }
 
