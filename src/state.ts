@@ -1,14 +1,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { OpenPosition, StoredState } from './types.js';
+import type { BotMode, OpenPosition, StoredState } from './types.js';
 
 export class StateStore {
   private readonly filePath: string;
   private state: StoredState;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(dataDir: string, paperBalance: number) {
-    this.filePath = path.join(dataDir, 'state.json');
+  constructor(dataDir: string, mode: BotMode, paperBalance: number) {
+    this.filePath = path.join(dataDir, `${mode}.state.json`);
     this.state = this.load() || {
       createdAt: Date.now(),
       updatedAt: Date.now(),

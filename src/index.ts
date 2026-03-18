@@ -61,7 +61,7 @@ class LeadLagBot {
 
   constructor(config: Config) {
     this.config = config;
-    this.state = new StateStore(config.dataDir, config.paperBalance);
+    this.state = new StateStore(config.dataDir, config.mode, config.paperBalance);
     this.replay = new ReplayRecorder(
       config.dataDir,
       config.replayDir,
@@ -91,7 +91,10 @@ class LeadLagBot {
     }
 
     this.log.info(`Mode: ${this.config.mode}`);
-    this.log.info(`Budget: $${this.config.budget.toFixed(2)} | Paper balance: $${this.state.getPaperBalance().toFixed(2)}`);
+    const startupBalanceText = this.config.mode === 'paper'
+      ? `Paper balance: $${this.state.getPaperBalance().toFixed(2)}`
+      : 'Live balance source: Polymarket';
+    this.log.info(`Budget: $${this.config.budget.toFixed(2)} | ${startupBalanceText}`);
     this.log.info(`Replay log: ${this.replay.getPath()}`);
     this.replay.record('run_start', {
       mode: this.config.mode,
@@ -762,12 +765,11 @@ class LeadLagBot {
       ? `PM=$${formatLiveBalance(this.liveBalances?.polymarketUsdc)} | POL=${formatLiveBalance(this.liveBalances?.pol, 4)}`
       : `Paper=$${this.state.getPaperBalance().toFixed(2)}`;
 
-    this.log.status(
-      `Mode=${this.config.mode} | Markets=${this.markets.size} | ` +
-      `Open=${openPositions.length} | Settled=${settled.length} | ` +
-      `${balanceText} | Realized=$${realized.toFixed(2)} | ` +
-      `Rejects=${topRejects || 'none'}`,
-    );
+    const statusText = this.config.mode === 'live'
+      ? `Mode=${this.config.mode} | Markets=${this.markets.size} | ${balanceText} | Rejects=${topRejects || 'none'}`
+      : `Mode=${this.config.mode} | Markets=${this.markets.size} | Open=${openPositions.length} | Settled=${settled.length} | ${balanceText} | Realized=$${realized.toFixed(2)} | Rejects=${topRejects || 'none'}`;
+
+    this.log.status(statusText);
 
     const m2d = this.latency.summarize('market_to_decision');
     const d2o = this.latency.summarize('decision_to_order');
@@ -776,11 +778,13 @@ class LeadLagBot {
     );
     this.log.info(`[SRC] ${this.formatSourceHealth()}`);
 
-    for (const position of openPositions.slice(-5)) {
-      this.log.info(
-        `[OPEN] ${position.side} ${position.slug} stake=$${position.stake.toFixed(2)} ` +
-        `entry=${position.entryPrice.toFixed(3)} shares=${position.shares.toFixed(2)}`,
-      );
+    if (this.config.mode !== 'live') {
+      for (const position of openPositions.slice(-5)) {
+        this.log.info(
+          `[OPEN] ${position.side} ${position.slug} stake=$${position.stake.toFixed(2)} ` +
+          `entry=${position.entryPrice.toFixed(3)} shares=${position.shares.toFixed(2)}`,
+        );
+      }
     }
   }
 
