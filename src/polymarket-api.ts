@@ -4,8 +4,34 @@ import type {
   GammaMarket,
 } from './types.js';
 
+export interface GeoblockStatus {
+  blocked: boolean;
+  closedOnly: boolean;
+  country?: string;
+  region?: string;
+  raw: Record<string, unknown>;
+}
+
 const GAMMA_API_BASE = 'https://gamma-api.polymarket.com';
 const CLOB_API_BASE = 'https://clob.polymarket.com';
+
+
+export async function fetchGeoblockStatus(): Promise<GeoblockStatus | null> {
+  const data = await fetchJson<Record<string, unknown>>('https://polymarket.com/api/geoblock');
+  if (!data || typeof data !== 'object') return null;
+  const lowerStatus = toStringValue(data.status).toLowerCase();
+  const lowerMode = toStringValue(data.mode).toLowerCase();
+  const lowerMessage = toStringValue(data.error || data.message).toLowerCase();
+  const blocked = Boolean(data.blocked) || lowerStatus == 'blocked' || lowerMode == 'blocked' || lowerMessage.includes('restricted in your region');
+  const closedOnly = Boolean(data.close_only) || lowerStatus == 'close-only' || lowerMode == 'close-only' || lowerMessage.includes('close-only');
+  return {
+    blocked,
+    closedOnly,
+    country: toStringValue(data.country),
+    region: toStringValue(data.region),
+    raw: data,
+  };
+}
 
 export async function fetchGammaMarketBySlug(slug: string): Promise<GammaMarket | null> {
   const query = new URLSearchParams({

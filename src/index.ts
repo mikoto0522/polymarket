@@ -3,7 +3,7 @@ import { loadConfig, type Config, type StrategyProfile } from './config.js';
 import { LatencyTracker } from './latency.js';
 import { LiveTradingClient, type LiveWalletBalances } from './live.js';
 import { Logger } from './logger.js';
-import { fetchClobMarket, fetchGammaMarketBySlug } from './polymarket-api.js';
+import { fetchClobMarket, fetchGammaMarketBySlug, fetchGeoblockStatus } from './polymarket-api.js';
 import { PolymarketRealtime } from './realtime.js';
 import { ReplayRecorder } from './replay.js';
 import { StateStore } from './state.js';
@@ -55,6 +55,7 @@ class LeadLagBot {
   private readonly rejectCounts = new Map<string, number>();
   private readonly recentRejects = new Map<string, number>();
   private readonly missingBinanceByCoin = new Map<Coin, number>();
+  private readonly redeemRetryAfter = new Map<string, number>();
   private readonly tokenToCondition = new Map<string, string>();
   private readonly coinToConditions = new Map<Coin, Set<string>>();
   private readonly dirtyConditions = new Set<string>();
@@ -88,6 +89,13 @@ class LeadLagBot {
       const probes = await this.live.probePolymarketBalances().catch(() => []);
       if (probes.length > 0) {
         this.log.info(`[PM PROBE] ${probes.map((probe) => `sig=${probe.signatureType}:$${probe.polymarketUsdc}`).join(' | ')}`);
+      }
+      const geoblock = await fetchGeoblockStatus().catch(() => null);
+      if (geoblock) {
+        this.log.info(`[GEO] blocked=${geoblock.blocked} closeOnly=${geoblock.closedOnly} country=${geoblock.country || '?'} region=${geoblock.region || '?'}`);
+        if (geoblock.blocked || geoblock.closedOnly) {
+          throw new Error(`Live trading unavailable for region ${geoblock.country || '?'}-${geoblock.region || '?'} (blocked=${geoblock.blocked}, closeOnly=${geoblock.closedOnly})`);
+        }
       }
     }
 
@@ -686,6 +694,8 @@ class LeadLagBot {
     const now = Date.now();
     for (const position of this.state.getOpenPositions()) {
       if (now < position.endTime + this.config.settleDelaySec * 1000) continue;
+      const retryAfter = this.redeemRetryAfter.get(position.id) || 0;
+      if (retryAfter > now) continue;
 
       const market = await fetchClobMarket(position.conditionId).catch(() => null);
       if (!market || !market.closed) continue;
@@ -707,7 +717,10 @@ class LeadLagBot {
             );
             payout = parseFloat(result.usdcReceived);
           } catch (error) {
-            this.log.warn(`[REDEEM RETRY] ${position.slug} ${String(error).slice(0, 120)}`);
+            const message = String(error);
+            const backoffMs = message.includes('No winning tokens to redeem') ? 5 * 60_000 : 30_000;
+            this.redeemRetryAfter.set(position.id, Date.now() + backoffMs);
+            this.log.warn(`[REDEEM RETRY] ${position.slug} retry in ${Math.round(backoffMs / 1000)}s ${message.slice(0, 120)}`);
             continue;
           }
         } else {
@@ -716,6 +729,7 @@ class LeadLagBot {
         }
       }
 
+      this.redeemRetryAfter.delete(position.id);
       const realizedPnl = payout - position.stake;
       this.state.settlePosition(position.id, payout, realizedPnl);
       this.log.trade(
