@@ -53,6 +53,7 @@ class LeadLagBot {
   private readonly subscribedMarkets = new Set<string>();
   private readonly coinCooldownUntil = new Map<Coin, number>();
   private readonly rejectCounts = new Map<string, number>();
+  private readonly recentRejects = new Map<string, number>();
   private readonly missingBinanceByCoin = new Map<Coin, number>();
   private readonly tokenToCondition = new Map<string, string>();
   private readonly coinToConditions = new Map<Coin, Set<string>>();
@@ -375,6 +376,14 @@ class LeadLagBot {
 
   private buildSignal(market: TrackedMarket, timeRemainingSec: number): SignalCandidate | null {
     const fail = (reason: string, extra: Record<string, unknown> = {}): null => {
+      const side = typeof extra.side === 'string' ? extra.side : 'NA';
+      const rejectKey = `${market.conditionId}:${reason}:${side}`;
+      const now = Date.now();
+      const last = this.recentRejects.get(rejectKey) || 0;
+      if (now - last < 1500) {
+        return null;
+      }
+      this.recentRejects.set(rejectKey, now);
       this.rejectCounts.set(reason, (this.rejectCounts.get(reason) || 0) + 1);
       if (reason === 'missing_binance') {
         this.missingBinanceByCoin.set(market.coin, (this.missingBinanceByCoin.get(market.coin) || 0) + 1);

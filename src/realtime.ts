@@ -108,6 +108,8 @@ export class PolymarketRealtime extends EventEmitter {
   private readonly rtdsBinanceSymbols = new Set<string>();
   private readonly rtdsSockets = new Map<string, ManagedSocket>();
   private readonly binanceSockets = new Map<string, ManagedSocket>();
+  private readonly lastBinanceTickAt = new Map<string, number>();
+  private binanceWatchdogTimer: ReturnType<typeof setInterval> | null = null;
   private marketReady = false;
   private marketInitialized = false;
   private started = false;
@@ -140,6 +142,7 @@ export class PolymarketRealtime extends EventEmitter {
     for (const socket of this.binanceSockets.values()) {
       socket.connect();
     }
+    this.startBinanceWatchdog();
 
     await promiseWithTimeout(Promise.all(waiters).then(() => undefined), timeoutMs, 'WebSocket timeout');
   }
@@ -154,6 +157,7 @@ export class PolymarketRealtime extends EventEmitter {
     for (const socket of this.binanceSockets.values()) {
       socket.disconnect();
     }
+    this.stopBinanceWatchdog();
   }
 
   subscribeMarkets(tokenIds: string[]): void {
@@ -256,6 +260,7 @@ export class PolymarketRealtime extends EventEmitter {
     if (record.topic === 'crypto_prices_chainlink') {
       this.emit('chainlinkPrice', price);
     } else {
+      this.lastBinanceTickAt.set(price.symbol.toLowerCase(), Date.now());
       this.emit('binancePrice', price);
     }
   }
@@ -288,11 +293,43 @@ export class PolymarketRealtime extends EventEmitter {
         : bestAsk;
     if (!symbol || !Number.isFinite(price) || price <= 0) return;
 
+    this.lastBinanceTickAt.set(symbol.toLowerCase(), receivedAt);
     this.emit('binancePrice', {
       symbol: symbol.toLowerCase(),
       price,
       timestamp: receivedAt,
     } satisfies CryptoPrice);
+  }
+
+
+  private startBinanceWatchdog(): void {
+    this.stopBinanceWatchdog();
+    this.binanceWatchdogTimer = setInterval(() => {
+      const now = Date.now();
+      for (const symbol of this.binanceSymbols) {
+        const last = this.lastBinanceTickAt.get(symbol) || 0;
+        if (last && now - last < 5000) continue;
+
+        const socket = this.binanceSockets.get(symbol);
+        if (socket) {
+          socket.disconnect();
+          socket.connect();
+        }
+        const rtdsSocket = this.rtdsSockets.get(symbol);
+        if (rtdsSocket) {
+          rtdsSocket.disconnect();
+          rtdsSocket.connect();
+        }
+        this.lastBinanceTickAt.set(symbol, now);
+      }
+    }, 5000);
+  }
+
+  private stopBinanceWatchdog(): void {
+    if (this.binanceWatchdogTimer) {
+      clearInterval(this.binanceWatchdogTimer);
+      this.binanceWatchdogTimer = null;
+    }
   }
 
   private ensureExternalSockets(): void {
