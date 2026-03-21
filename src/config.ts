@@ -38,6 +38,9 @@ export interface Config {
   replayEnabled: boolean;
   replayTicksEnabled: boolean;
   replayTickMinMs: number;
+  marketRecorderEnabled: boolean;
+  marketRecorderDir: string;
+  marketRecorderMinMs: number;
   paperExecutionDelayMinMs: number;
   paperExecutionDelayMaxMs: number;
   scanSec: number;
@@ -107,6 +110,9 @@ export function loadConfig(): Config {
     replayEnabled: get('replay-enabled', 'REPLAY_ENABLED', 'true') === 'true',
     replayTicksEnabled: get('replay-ticks-enabled', 'REPLAY_TICKS_ENABLED', mode === 'live' ? 'false' : 'true') === 'true',
     replayTickMinMs: parseFloat(get('replay-tick-min-ms', 'REPLAY_TICK_MIN_MS', '250')),
+    marketRecorderEnabled: get('market-recorder-enabled', 'MARKET_RECORDER_ENABLED', 'true') === 'true',
+    marketRecorderDir: get('market-recorder-dir', 'MARKET_RECORDER_DIR', 'market-data'),
+    marketRecorderMinMs: parseFloat(get('market-recorder-min-ms', 'MARKET_RECORDER_MIN_MS', '1000')),
     paperExecutionDelayMinMs: parseFloat(get('paper-execution-delay-min-ms', 'PAPER_EXECUTION_DELAY_MIN_MS', '100')),
     paperExecutionDelayMaxMs: parseFloat(get('paper-execution-delay-max-ms', 'PAPER_EXECUTION_DELAY_MAX_MS', '300')),
     scanSec: parseFloat(get('scan-sec', 'SCAN_SEC', '20')),

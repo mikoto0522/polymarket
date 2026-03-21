@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { loadConfig, type Config, type StrategyProfile } from './config.js';
 import { LatencyTracker } from './latency.js';
 import { LiveTradingClient, type LiveWalletBalances } from './live.js';
+import { MarketDataRecorder } from './market-recorder.js';
 import { Logger } from './logger.js';
 import { fetchClobMarket, fetchGammaMarketBySlug, fetchGeoblockStatus } from './polymarket-api.js';
 import { PolymarketRealtime } from './realtime.js';
@@ -40,6 +41,7 @@ class LeadLagBot {
   private readonly log = new Logger();
   private readonly state: StateStore;
   private readonly replay: ReplayRecorder;
+  private readonly marketRecorder: MarketDataRecorder;
   private readonly realtime = new PolymarketRealtime();
   private readonly latency = new LatencyTracker();
   private live: LiveTradingClient | null = null;
@@ -70,6 +72,12 @@ class LeadLagBot {
       config.replayEnabled,
       config.replayTicksEnabled,
       config.replayTickMinMs,
+    );
+    this.marketRecorder = new MarketDataRecorder(
+      config.dataDir,
+      config.marketRecorderDir,
+      config.marketRecorderEnabled,
+      config.marketRecorderMinMs,
     );
   }
 
@@ -105,6 +113,9 @@ class LeadLagBot {
       : 'Live balance source: Polymarket';
     this.log.info(`Budget: $${this.config.budget.toFixed(2)} | ${startupBalanceText}`);
     this.log.info(`Replay log: ${this.replay.getPath()}`);
+    if (this.config.marketRecorderEnabled) {
+      this.log.info(`Market data log: ${this.marketRecorder.getRunDir()}`);
+    }
     this.replay.record('run_start', {
       mode: this.config.mode,
       budget: this.config.budget,
@@ -115,6 +126,8 @@ class LeadLagBot {
       maxOpenPositions: this.config.maxOpenPositions,
       maxOpenPositionsPerCoin: this.config.maxOpenPositionsPerCoin,
       replayTicksEnabled: this.config.replayTicksEnabled,
+      marketRecorderEnabled: this.config.marketRecorderEnabled,
+      marketRecorderMinMs: this.config.marketRecorderMinMs,
     });
 
     this.realtime.on('orderbook', (book: OrderbookSnapshot) => this.handleOrderbook(book));
@@ -860,6 +873,7 @@ class LeadLagBot {
       this.dirtyConditions.clear();
       this.captureBaselines();
       this.evaluateMarkets(dirty);
+      this.recordMarketSnapshots(dirty);
     });
   }
 
@@ -878,6 +892,7 @@ class LeadLagBot {
     this.state.flush();
     this.realtime.disconnect();
     await this.replay.close();
+    await this.marketRecorder.close();
     process.exit(0);
   }
 
@@ -897,6 +912,59 @@ class LeadLagBot {
     return side === 'UP'
       ? this.orderbooks.get(market.upTokenId)
       : this.orderbooks.get(market.downTokenId);
+  }
+
+  private recordMarketSnapshots(conditionIds: Iterable<string>): void {
+    const now = Date.now();
+    for (const conditionId of conditionIds) {
+      const market = this.markets.get(conditionId);
+      if (!market || market.baseline == null || market.baselineCapturedAt == null) continue;
+      const up = this.orderbooks.get(market.upTokenId);
+      const down = this.orderbooks.get(market.downTokenId);
+      const spot = this.binance.get(market.coin);
+      const chain = this.chainlink.get(market.coin);
+      if (!up || !down || !spot || !chain) continue;
+
+      const preferredSide: Side | 'NA' = spot.price >= market.baseline ? 'UP' : 'DOWN';
+      const preferredBook = preferredSide === 'UP' ? up : down;
+      const preferredAsk = preferredBook.bestAsk || 0;
+      const binanceDeltaBps = toBps(spot.price, market.baseline);
+      const chainlinkDeltaBps = toBps(chain.price, market.baseline);
+      const marketMid = preferredSide === 'UP'
+        ? clamp((preferredAsk + (1 - down.bestBid)) / 2, 0, 1)
+        : clamp((preferredAsk + (1 - up.bestBid)) / 2, 0, 1);
+      const impliedProb = clamp(0.5 + (Math.abs(binanceDeltaBps) / this.getStrategyProfile(market.duration).fairScaleBps) * 0.47, 0.5, 0.97);
+      const preferredLag = preferredAsk > 0 ? impliedProb - marketMid : 0;
+      const preferredEdge = preferredAsk > 0 ? impliedProb - preferredAsk - this.getStrategyProfile(market.duration).executionBuffer : 0;
+
+      this.marketRecorder.record({
+        conditionId: market.conditionId,
+        slug: market.slug,
+        question: market.question,
+        coin: market.coin,
+        duration: market.duration,
+        timestampMs: now,
+        startTime: market.startTime,
+        endTime: market.endTime,
+        secondsTillEnd: (market.endTime - now) / 1000,
+        baseline: market.baseline,
+        baselineCapturedAt: market.baselineCapturedAt,
+        binancePrice: spot.price,
+        chainlinkPrice: chain.price,
+        binanceAgeMs: Math.max(0, now - spot.timestamp),
+        chainlinkAgeMs: Math.max(0, now - chain.timestamp),
+        binanceDeltaBps,
+        chainlinkDeltaBps,
+        leadGapBps: Math.abs(binanceDeltaBps - chainlinkDeltaBps),
+        binancePulseBps: this.getBinancePulseBps(market.coin),
+        up,
+        down,
+        preferredSide,
+        preferredAsk,
+        preferredEdge,
+        preferredLag,
+      });
+    }
   }
 }
 
