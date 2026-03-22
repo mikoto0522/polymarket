@@ -137,13 +137,13 @@ export function loadConfig(): Config {
         minTopBookValue: 2,
         sides: {
           UP: {
-            binanceTriggerBps: 1.4,
-            minBinancePulseBps: 0.3,
-            minLeadGapBps: 0.18,
+            binanceTriggerBps: 1.7,
+            minBinancePulseBps: 0.45,
+            minLeadGapBps: 0.26,
             chainlinkOpposeBps: 2.6,
-            minEdge: 0.01,
-            minMarketLag: 0.004,
-            maxAsk: 0.97,
+            minEdge: 0.013,
+            minMarketLag: 0.006,
+            maxAsk: 0.93,
           },
           DOWN: {
             binanceTriggerBps: 1.65,
@@ -167,13 +167,13 @@ export function loadConfig(): Config {
         minTopBookValue: 4,
         sides: {
           UP: {
-            binanceTriggerBps: 2.6,
-            minBinancePulseBps: 0.6,
-            minLeadGapBps: 0.4,
+            binanceTriggerBps: 2.9,
+            minBinancePulseBps: 0.75,
+            minLeadGapBps: 0.5,
             chainlinkOpposeBps: 1.9,
-            minEdge: 0.02,
-            minMarketLag: 0.008,
-            maxAsk: 0.82,
+            minEdge: 0.024,
+            minMarketLag: 0.01,
+            maxAsk: 0.78,
           },
           DOWN: {
             binanceTriggerBps: 3.1,
