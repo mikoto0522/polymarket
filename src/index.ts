@@ -428,9 +428,16 @@ class LeadLagBot {
     const binanceDeltaBps = toBps(spot.price, baseline);
     const binancePulseBps = this.getBinancePulseBps(market.coin);
     const macroTrendBps = this.getBinanceTrendBps(market.coin);
-    const direction = chooseDirection(binanceDeltaBps, chainlinkDeltaBps, strategy, macroTrendBps, this.config.trendBiasBps);
+    const direction = chooseDirection(
+      binanceDeltaBps,
+      chainlinkDeltaBps,
+      binancePulseBps,
+      strategy,
+      macroTrendBps,
+      this.config.trendBiasBps,
+    );
     if (!direction) {
-      return fail('direction_rejected', { binanceDeltaBps, chainlinkDeltaBps, macroTrendBps });
+      return fail('direction_rejected', { binanceDeltaBps, chainlinkDeltaBps, binancePulseBps, macroTrendBps });
     }
     const sideStrategy = applyTrendToSideStrategy(strategy.sides[direction], direction, macroTrendBps, this.config.trendBiasBps);
     if (Math.abs(binancePulseBps) < sideStrategy.minBinancePulseBps) {
@@ -1052,22 +1059,52 @@ function applyTrendToSideStrategy(sideStrategy: StrategyProfile['sides'][Side], 
     }
   } else if (macroTrendBps >= trendBiasBps) {
     if (side === 'DOWN') {
-      adjusted.binanceTriggerBps += 0.2;
-      adjusted.minBinancePulseBps += 0.08;
-      adjusted.minLeadGapBps += 0.06;
-      adjusted.minEdge += 0.002;
-      adjusted.minMarketLag += 0.001;
-      adjusted.maxAsk = Math.max(0.5, adjusted.maxAsk - 0.02);
+      adjusted.binanceTriggerBps += 0.08;
+      adjusted.minBinancePulseBps += 0.04;
+      adjusted.minLeadGapBps += 0.03;
+      adjusted.minEdge += 0.001;
+      adjusted.minMarketLag += 0.0005;
+      adjusted.maxAsk = Math.max(0.5, adjusted.maxAsk - 0.01);
     }
   }
   return adjusted;
 }
 
-function chooseDirection(binanceDeltaBps: number, chainlinkDeltaBps: number, strategy: StrategyProfile, macroTrendBps: number, trendBiasBps: number): Side | null {
+function chooseDirection(
+  binanceDeltaBps: number,
+  chainlinkDeltaBps: number,
+  binancePulseBps: number,
+  strategy: StrategyProfile,
+  macroTrendBps: number,
+  trendBiasBps: number,
+): Side | null {
   let direction: Side | null = null;
-  if (binanceDeltaBps >= strategy.sides.UP.binanceTriggerBps) direction = 'UP';
-  else if (binanceDeltaBps <= -strategy.sides.DOWN.binanceTriggerBps) direction = 'DOWN';
-  else return null;
+  const upTrigger = strategy.sides.UP.binanceTriggerBps;
+  const downTrigger = strategy.sides.DOWN.binanceTriggerBps;
+
+  if (binanceDeltaBps >= upTrigger) {
+    direction = 'UP';
+  } else if (binanceDeltaBps <= -downTrigger) {
+    direction = 'DOWN';
+  } else {
+    const reversalDownPulseBps = Math.max(strategy.sides.DOWN.minBinancePulseBps * 1.8, 0.9);
+    const reversalDownDeltaCapBps = Math.max(downTrigger * 0.6, 0.9);
+    const reversalDownChainCapBps = Math.max(strategy.sides.DOWN.chainlinkOpposeBps * 0.55, 0.9);
+    const reversalTrendCapBps = Math.max(trendBiasBps * 1.1, 4);
+
+    // Let DOWN participate on failed upside moves, but only when the tape is rolling over
+    // and the slower anchor is no longer strongly confirming the upside.
+    if (
+      binanceDeltaBps <= reversalDownDeltaCapBps
+      && binancePulseBps <= -reversalDownPulseBps
+      && chainlinkDeltaBps <= reversalDownChainCapBps
+      && macroTrendBps < reversalTrendCapBps
+    ) {
+      direction = 'DOWN';
+    } else {
+      return null;
+    }
+  }
 
   const binanceSign = direction === 'UP' ? 1 : -1;
   const chainSign = Math.sign(chainlinkDeltaBps);
