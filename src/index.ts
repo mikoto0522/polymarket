@@ -845,8 +845,11 @@ class LeadLagBot {
     for (const [conditionId, market] of this.markets) {
       if (now <= market.endTime + 5 * 60_000) continue;
       if (this.state.hasOpenPosition(conditionId)) continue;
+      this.realtime.unsubscribeMarkets([market.upTokenId, market.downTokenId]);
       this.markets.delete(conditionId);
       this.subscribedMarkets.delete(conditionId);
+      this.orderbooks.delete(market.upTokenId);
+      this.orderbooks.delete(market.downTokenId);
       this.tokenToCondition.delete(market.upTokenId);
       this.tokenToCondition.delete(market.downTokenId);
       this.dirtyConditions.delete(conditionId);

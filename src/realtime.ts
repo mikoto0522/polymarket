@@ -173,6 +173,21 @@ export class PolymarketRealtime extends EventEmitter {
     }
   }
 
+  unsubscribeMarkets(tokenIds: string[]): void {
+    const removed: string[] = [];
+    for (const tokenId of tokenIds) {
+      if (!this.marketTokens.delete(tokenId)) continue;
+      removed.push(tokenId);
+    }
+    if (removed.length === 0) return;
+    if (!this.marketReady || !this.marketInitialized) return;
+
+    this.marketSocket.sendJson({
+      operation: 'unsubscribe',
+      assets_ids: removed,
+    });
+  }
+
   subscribeCryptoPrices(symbols: string[]): void {
     let changed = false;
     for (const symbol of symbols) {
